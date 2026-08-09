@@ -73,7 +73,12 @@ async def create_admin(
     workspace = await create_personal_workspace_for_user(db_session, user)
 
     # Create default wallet with the chosen currency
-    wallet_name = "Carteira" if body.language.startswith("pt") else "Wallet"
+    if body.language.startswith("pt"):
+        wallet_name = "Carteira"
+    elif body.language.startswith("ko"):
+        wallet_name = "지갑"
+    else:
+        wallet_name = "Wallet"
     wallet = Account(
         user_id=user.id,
         workspace_id=workspace.id,
