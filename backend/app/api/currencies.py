@@ -10,6 +10,7 @@ CURRENCY_META = {
     "EUR": {"symbol": "\u20ac", "name": "Euro", "flag": "\U0001F1EA\U0001F1FA"},
     "GBP": {"symbol": "\u00a3", "name": "British Pound", "flag": "\U0001F1EC\U0001F1E7"},
     "JPY": {"symbol": "\u00a5", "name": "Japanese Yen", "flag": "\U0001F1EF\U0001F1F5"},
+    "KRW": {"symbol": "₩", "name": "Korean Won", "flag": "\U0001F1F0\U0001F1F7"},
     "CAD": {"symbol": "C$", "name": "Canadian Dollar", "flag": "\U0001F1E8\U0001F1E6"},
     "AUD": {"symbol": "A$", "name": "Australian Dollar", "flag": "\U0001F1E6\U0001F1FA"},
     "CHF": {"symbol": "Fr", "name": "Swiss Franc", "flag": "\U0001F1E8\U0001F1ED"},
