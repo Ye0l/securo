@@ -169,7 +169,6 @@ export function WorkspaceSwitcher({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64" side="top">
-          {/* Workspaces — only show the switcher list when there's more than one. */}
           {hasMultipleWorkspaces && (
             <>
               <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
@@ -201,7 +200,6 @@ export function WorkspaceSwitcher({
             </>
           )}
 
-          {/* Workspace actions */}
           <DropdownMenuItem
             onClick={() => navigate('/workspace/settings')}
             className="flex items-center gap-2"
@@ -219,7 +217,6 @@ export function WorkspaceSwitcher({
 
           <DropdownMenuSeparator />
 
-          {/* Admin */}
           {user.is_superuser && (
             <DropdownMenuItem
               onClick={() => navigate('/admin')}
@@ -230,7 +227,6 @@ export function WorkspaceSwitcher({
             </DropdownMenuItem>
           )}
 
-          {/* Account actions */}
           <DropdownMenuItem
             onClick={onChangePassword}
             className="flex items-center gap-2"
@@ -279,7 +275,6 @@ export function WorkspaceSwitcher({
             {t('update.menuItem')}
           </DropdownMenuItem>
 
-          {/* Language sub-menu */}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="flex items-center gap-2">
               <Languages size={14} />
@@ -293,6 +288,13 @@ export function WorkspaceSwitcher({
                 <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
                   {t('setup.language')}
                 </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => i18n.changeLanguage('ko')}
+                  className="flex items-center gap-2"
+                >
+                  <span className="flex-1">한국어</span>
+                  {currentLang === 'ko' && <Check size={13} className="text-primary" />}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => i18n.changeLanguage('ru')}
                   className="flex items-center gap-2"
@@ -379,7 +381,6 @@ export function WorkspaceSwitcher({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* New workspace dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>

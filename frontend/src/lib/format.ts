@@ -35,6 +35,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   EUR: 'de-DE',
   GBP: 'en-GB',
   JPY: 'ja-JP',
+  KRW: 'ko-KR',
   CAD: 'en-CA',
   AUD: 'en-AU',
   CHF: 'de-CH',
@@ -83,11 +84,10 @@ export function resolveDisplayLocale(
   return fallback
 }
 
-/**
- * Currencies that conventionally write dates month-first (MM/DD). Everything
- * else defaults to day-first, which covers the rest of our supported set.
- */
+/** Currencies that conventionally write dates month-first (MM/DD). */
 const MONTH_FIRST_CURRENCIES = new Set(['USD'])
+/** Currencies that conventionally write dates year-first (YYYY/MM/DD). */
+const YEAR_FIRST_CURRENCIES = new Set(['KRW'])
 
 /**
  * Resolve the date field order. An explicit `dateFormat` wins; otherwise
@@ -102,6 +102,7 @@ export function resolveDateOrder(
   // auto → follow the number format's convention, then the currency.
   if (numberFormat === 'comma_dot') return 'mdy'
   if (numberFormat === 'dot_comma' || numberFormat === 'space_comma') return 'dmy'
+  if (currency && YEAR_FIRST_CURRENCIES.has(currency)) return 'ymd'
   return currency && MONTH_FIRST_CURRENCIES.has(currency) ? 'mdy' : 'dmy'
 }
 
@@ -116,14 +117,14 @@ const ORDER_EN_LOCALE: Record<DateOrder, string> = {
  * Resolve the locale used for *dates*. Keeps the app language (so month names
  * stay translated) but picks a regional variant whose date order matches the
  * chosen format. English exposes all three orders (en-US/en-GB/en-CA); pt-BR
- * and es are day-first natively. When a non-English UI is paired with a
- * non-native order we fall back to an English proxy so the order is still
- * honored (a rare combination).
+ * and es are day-first natively. Korean is year-first natively. When a
+ * non-English UI is paired with a non-native order we fall back to an English
+ * proxy so the requested order is still honored.
  *
  * @param dateFormat    Admin date-format setting ('auto' or explicit order).
  * @param numberFormat  Number-format setting — feeds the 'auto' date order.
  * @param currency      Display currency — feeds 'auto' when number is 'auto'.
- * @param language      The resolved UI language ('en', 'pt-BR', 'es', …).
+ * @param language      The resolved UI language ('en', 'pt-BR', 'es', 'ko', …).
  */
 export function resolveDateLocale(
   dateFormat: DateFormat | undefined,
@@ -133,12 +134,15 @@ export function resolveDateLocale(
 ): string {
   const order = resolveDateOrder(dateFormat, numberFormat, currency)
   if (language.startsWith('en')) return ORDER_EN_LOCALE[order]
+  if (language.startsWith('ko') && order === 'ymd') return 'ko-KR'
   if (order === 'dmy') return language
   return ORDER_EN_LOCALE[order]
 }
 
 /**
- * Format a numeric value as currency using Intl.NumberFormat.
+ * Format a numeric value as currency using Intl.NumberFormat. Fraction digits
+ * are left to Intl so zero-minor-unit currencies such as KRW/JPY render
+ * naturally while currencies such as USD/EUR retain two decimals.
  */
 export function formatCurrency(
   value: number | null | undefined,
@@ -149,7 +153,5 @@ export function formatCurrency(
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
   }).format(value)
 }
