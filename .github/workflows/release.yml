@@ -3,10 +3,17 @@ name: Build and Push Docker Images
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build and publish (e.g. 0.12.0 or v0.12.0)"
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+  VERSION: ${{ github.event.release.tag_name || inputs.version }}
 
 permissions:
   contents: read
@@ -35,7 +42,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/securo-backend
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ env.VERSION }}
             type=raw,value=latest
 
       - name: Set up QEMU
@@ -75,7 +82,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/securo-frontend
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ env.VERSION }}
             type=raw,value=latest
 
       - name: Set up QEMU
@@ -91,7 +98,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VITE_APP_VERSION=${{ github.event.release.tag_name }}
+            VITE_APP_VERSION=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -116,8 +123,8 @@ jobs:
 
       - name: Package and Push Helm Chart
         run: |
-          # Strip the 'v' prefix from the release tag if it exists, as helm chart version needs to be semver without v.
-          VERSION="${{ github.event.release.tag_name }}"
+          # Strip the 'v' prefix from the version if it exists, as helm chart version needs to be semver without v.
+          VERSION="${{ env.VERSION }}"
           VERSION="${VERSION#v}"
 
           echo "Injecting version $VERSION into artifacthub.io/images annotation"
