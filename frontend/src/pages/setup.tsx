@@ -96,12 +96,24 @@ export default function SetupPage() {
               </div>
             )}
             <div className="flex items-center justify-between gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 min-w-0">
                 <Label className="text-sm flex items-center gap-1.5">
                   <Globe size={14} />
                   {t('setup.language')}
                 </Label>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('ko')}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
+                      currentLang === 'ko'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    KO
+                  </button>
                   <button
                     type="button"
                     onClick={() => i18n.changeLanguage('ru')}
@@ -224,7 +236,7 @@ export default function SetupPage() {
                   </button>
                 </div>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 shrink-0">
                 <Label className="text-sm">{t('setup.theme')}</Label>
                 <div className="flex items-center gap-1">
                   <button
@@ -263,7 +275,6 @@ export default function SetupPage() {
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-
                 placeholder={t('setup.namePlaceholder')}
               />
             </div>
@@ -274,7 +285,6 @@ export default function SetupPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-
                 placeholder="you@example.com"
                 required
               />
@@ -286,7 +296,6 @@ export default function SetupPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-
                 required
                 minLength={8}
               />
@@ -298,7 +307,6 @@ export default function SetupPage() {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-
                 required
                 minLength={8}
               />
