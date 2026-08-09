@@ -11,6 +11,8 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
+    env:
+      GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
     defaults:
       run:
         working-directory: backend
@@ -100,10 +102,10 @@ jobs:
           echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
 
       - name: Update coverage badge
-        if: github.ref == 'refs/heads/main' && steps.backend-changes.outputs.run_backend == 'true'
+        if: github.ref == 'refs/heads/main' && steps.backend-changes.outputs.run_backend == 'true' && env.GIST_TOKEN != ''
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
-          auth: ${{ secrets.GIST_TOKEN }}
+          auth: ${{ env.GIST_TOKEN }}
           gistID: ae627b744aaa2ba89d850ea541c311be
           filename: coverage.json
           label: coverage
