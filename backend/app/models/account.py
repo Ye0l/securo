@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, SmallInteger, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,6 +38,12 @@ class Account(Base):
     statement_close_day: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     payment_due_day: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     minimum_payment: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
+    interest_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=8, scale=4), nullable=True)
+    original_principal: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
+    scheduled_payment: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
+    maturity_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    loan_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     card_brand: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     card_level: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_closed: Mapped[bool] = mapped_column(Boolean, default=False)

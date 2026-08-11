@@ -1,4 +1,5 @@
 import uuid
+from calendar import monthrange
 from datetime import date as _Date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -40,6 +41,23 @@ def _opening_balance_values(account_type: str, balance: Decimal) -> tuple[Decima
     amount = abs(balance)
     is_credit = (balance > 0) == (account_type != "credit_card")
     return amount, "credit" if is_credit else "debit"
+
+
+def _next_monthly_due_date(day: Optional[int], reference: Optional[_Date] = None) -> Optional[_Date]:
+    """Return the next monthly due date, clamping 29/30/31 to month-end."""
+    if day is None:
+        return None
+    ref = reference or _Date.today()
+
+    def in_month(year: int, month: int) -> _Date:
+        return _Date(year, month, min(day, monthrange(year, month)[1]))
+
+    candidate = in_month(ref.year, ref.month)
+    if candidate >= ref:
+        return candidate
+    if ref.month == 12:
+        return in_month(ref.year + 1, 1)
+    return in_month(ref.year, ref.month + 1)
 
 
 async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
@@ -162,6 +180,12 @@ def serialize_account(
         "statement_close_day": acc.statement_close_day,
         "payment_due_day": acc.payment_due_day,
         "minimum_payment": float(acc.minimum_payment) if acc.minimum_payment is not None else None,
+        "interest_rate": float(acc.interest_rate) if acc.interest_rate is not None else None,
+        "original_principal": float(acc.original_principal) if acc.original_principal is not None else None,
+        "scheduled_payment": float(acc.scheduled_payment) if acc.scheduled_payment is not None else None,
+        "maturity_date": acc.maturity_date,
+        "loan_status": acc.loan_status,
+        "notes": acc.notes,
         "card_brand": acc.card_brand,
         "card_level": acc.card_level,
         "institution_name": _institution_name(connection),
@@ -177,10 +201,12 @@ def serialize_account(
         cycle = get_cycle_dates(acc.statement_close_day, acc.payment_due_day)
         payload["next_close_date"] = cycle["next_close_date"]
         payload["next_due_date"] = cycle["next_due_date"]
-    elif acc.type == "loan" and acc.credit_limit is not None:
-        # Manual overdraft/credit-line accounts store debt as a negative balance.
-        # A 600,000 limit with -599,908 drawn therefore has 92 remaining.
-        payload["available_credit"] = float(max(Decimal("0"), acc.credit_limit + Decimal(str(resolved_balance))))
+    elif acc.type == "loan":
+        payload["next_due_date"] = _next_monthly_due_date(acc.payment_due_day)
+        if acc.credit_limit is not None:
+            # Manual overdraft/credit-line accounts store debt as a negative balance.
+            # A 600,000 limit with -599,908 drawn therefore has 92 remaining.
+            payload["available_credit"] = float(max(Decimal("0"), acc.credit_limit + Decimal(str(resolved_balance))))
 
     return payload
 
@@ -236,7 +262,9 @@ async def create_account(
     data: AccountCreate,
 ) -> Account:
     is_cc = data.type == "credit_card"
+    is_loan = data.type == "loan"
     supports_credit_limit = data.type in {"credit_card", "loan"}
+    supports_due_day = data.type in {"credit_card", "loan"}
     account = Account(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -246,8 +274,14 @@ async def create_account(
         currency=data.currency,
         credit_limit=data.credit_limit if supports_credit_limit else None,
         statement_close_day=data.statement_close_day if is_cc else None,
-        payment_due_day=data.payment_due_day if is_cc else None,
+        payment_due_day=data.payment_due_day if supports_due_day else None,
         minimum_payment=data.minimum_payment if is_cc else None,
+        interest_rate=data.interest_rate if is_loan else None,
+        original_principal=data.original_principal if is_loan else None,
+        scheduled_payment=data.scheduled_payment if is_loan else None,
+        maturity_date=data.maturity_date if is_loan else None,
+        loan_status=data.loan_status if is_loan else None,
+        notes=data.notes,
         card_brand=data.card_brand if is_cc else None,
         card_level=data.card_level if is_cc else None,
     )
@@ -307,6 +341,12 @@ async def update_account(
             "statement_close_day",
             "payment_due_day",
             "minimum_payment",
+            "interest_rate",
+            "original_principal",
+            "scheduled_payment",
+            "maturity_date",
+            "loan_status",
+            "notes",
             "card_brand",
             "card_level",
         }
@@ -315,10 +355,15 @@ async def update_account(
             raise ValueError("Cannot edit bank-connected accounts")
         old_type = account.type
         new_type = update_data.get("type", account.type)
-        cc_fields = editable_fields - {"display_name", "type"}
-        cc_update = {k: v for k, v in update_data.items() if k in cc_fields}
-        if cc_update and new_type != "credit_card":
+        card_only_fields = {"statement_close_day", "minimum_payment", "card_brand", "card_level"}
+        loan_only_fields = {"interest_rate", "original_principal", "scheduled_payment", "maturity_date", "loan_status"}
+        shared_debt_fields = {"credit_limit", "payment_due_day"}
+        if any(k in update_data for k in card_only_fields) and new_type != "credit_card":
             raise ValueError("Credit card fields can only be set on credit card accounts")
+        if any(k in update_data for k in loan_only_fields) and new_type != "loan":
+            raise ValueError("Loan fields can only be set on loan accounts")
+        if any(k in update_data for k in shared_debt_fields) and new_type not in {"credit_card", "loan"}:
+            raise ValueError("Debt fields can only be set on credit card or loan accounts")
         for key, value in update_data.items():
             setattr(account, key, value)
         # SimpleFIN stores a card's balance with the raw provider sign (negative
@@ -339,13 +384,20 @@ async def update_account(
                 account.balance = -account.balance
         # If the override moves the account away from credit_card, drop any
         # stale card metadata so it isn't left half credit-card.
-        if new_type != "credit_card":
+        if new_type not in {"credit_card", "loan"}:
             account.credit_limit = None
-            account.statement_close_day = None
             account.payment_due_day = None
+        if new_type != "credit_card":
+            account.statement_close_day = None
             account.minimum_payment = None
             account.card_brand = None
             account.card_level = None
+        if new_type != "loan":
+            account.interest_rate = None
+            account.original_principal = None
+            account.scheduled_payment = None
+            account.maturity_date = None
+            account.loan_status = None
         if cycle_fields_changed:
             await _recompute_effective_dates(session, account)
         await session.commit()
@@ -357,12 +409,18 @@ async def update_account(
 
     if account.type not in {"credit_card", "loan"}:
         account.credit_limit = None
+        account.payment_due_day = None
     if account.type != "credit_card":
         account.statement_close_day = None
-        account.payment_due_day = None
         account.minimum_payment = None
         account.card_brand = None
         account.card_level = None
+    if account.type != "loan":
+        account.interest_rate = None
+        account.original_principal = None
+        account.scheduled_payment = None
+        account.maturity_date = None
+        account.loan_status = None
 
     # When balance changes, sync the opening_balance transaction
     if "balance" in update_data:

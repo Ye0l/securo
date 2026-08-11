@@ -14,4 +14,8 @@ from mcp_server.tools import (  # noqa: F401
     knowledge,
     lifecycle,
     groups,
+    imports,
+    management,
+    connections,
+    extended_reads,
 )

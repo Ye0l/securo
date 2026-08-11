@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AccountBase(BaseModel):
@@ -20,9 +20,15 @@ class AccountCreate(BaseModel):
     balance_date: Optional[date] = None
     currency: str = "USD"
     credit_limit: Optional[Decimal] = None
-    statement_close_day: Optional[int] = None
-    payment_due_day: Optional[int] = None
+    statement_close_day: Optional[int] = Field(default=None, ge=1, le=31)
+    payment_due_day: Optional[int] = Field(default=None, ge=1, le=31)
     minimum_payment: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = Field(default=None, ge=0)
+    original_principal: Optional[Decimal] = Field(default=None, ge=0)
+    scheduled_payment: Optional[Decimal] = Field(default=None, ge=0)
+    maturity_date: Optional[date] = None
+    loan_status: Optional[str] = Field(default=None, max_length=50)
+    notes: Optional[str] = None
     card_brand: Optional[str] = None
     card_level: Optional[str] = None
 
@@ -34,9 +40,15 @@ class AccountUpdate(BaseModel):
     balance: Optional[Decimal] = None
     balance_date: Optional[date] = None
     credit_limit: Optional[Decimal] = None
-    statement_close_day: Optional[int] = None
-    payment_due_day: Optional[int] = None
+    statement_close_day: Optional[int] = Field(default=None, ge=1, le=31)
+    payment_due_day: Optional[int] = Field(default=None, ge=1, le=31)
     minimum_payment: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = Field(default=None, ge=0)
+    original_principal: Optional[Decimal] = Field(default=None, ge=0)
+    scheduled_payment: Optional[Decimal] = Field(default=None, ge=0)
+    maturity_date: Optional[date] = None
+    loan_status: Optional[str] = Field(default=None, max_length=50)
+    notes: Optional[str] = None
     card_brand: Optional[str] = None
     card_level: Optional[str] = None
 
@@ -65,6 +77,12 @@ class AccountRead(AccountBase):
     next_close_date: Optional[date] = None
     next_due_date: Optional[date] = None
     minimum_payment: Optional[float] = None
+    interest_rate: Optional[float] = None
+    original_principal: Optional[float] = None
+    scheduled_payment: Optional[float] = None
+    maturity_date: Optional[date] = None
+    loan_status: Optional[str] = None
+    notes: Optional[str] = None
     card_brand: Optional[str] = None
     card_level: Optional[str] = None
     is_closed: bool = False

@@ -97,22 +97,30 @@ def _can_apply(ctx: CallContext, apply: bool) -> bool:
     name="propose_create_account",
     description=_PROPOSAL_PREFACE
     + (
-        "Preview creation of a manual financial account with an optional opening "
-        "balance and credit/overdraft limit. Use type='loan' for overdrafts or "
-        "credit lines whose debt is represented by a negative balance."
+        "Preview creation of a manual financial account. Supports ordinary accounts, "
+        "credit-card cycle metadata, and loan/debt metadata such as APR, due day, "
+        "original principal, scheduled payment, maturity, status, and notes."
     ),
     parameters={
         "type": "object",
         "properties": {
             "name": {"type": "string", "minLength": 1, "maxLength": 255},
-            "type": {
-                "type": "string",
-                "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"],
-            },
+            "type": {"type": "string", "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"]},
             "balance": {"type": "number", "default": 0},
             "balance_date": {"type": "string", "format": "date"},
             "currency": {"type": "string", "minLength": 3, "maxLength": 3, "default": "USD"},
-            "credit_limit": {"type": "number", "exclusiveMinimum": 0},
+            "credit_limit": {"type": "number", "minimum": 0},
+            "statement_close_day": {"type": "integer", "minimum": 1, "maximum": 31},
+            "payment_due_day": {"type": "integer", "minimum": 1, "maximum": 31},
+            "minimum_payment": {"type": "number", "minimum": 0},
+            "interest_rate": {"type": "number", "minimum": 0, "description": "Annual percentage rate, e.g. 3.5 for 3.5%."},
+            "original_principal": {"type": "number", "minimum": 0},
+            "scheduled_payment": {"type": "number", "minimum": 0},
+            "maturity_date": {"type": "string", "format": "date"},
+            "loan_status": {"type": "string", "maxLength": 50},
+            "notes": {"type": "string"},
+            "card_brand": {"type": "string", "maxLength": 50},
+            "card_level": {"type": "string", "maxLength": 50},
             "apply": _APPLY_FIELD,
         },
         "required": ["name", "type"],
@@ -131,6 +139,17 @@ async def propose_create_account(
     balance_date: str | None = None,
     currency: str = "USD",
     credit_limit: float | None = None,
+    statement_close_day: int | None = None,
+    payment_due_day: int | None = None,
+    minimum_payment: float | None = None,
+    interest_rate: float | None = None,
+    original_principal: float | None = None,
+    scheduled_payment: float | None = None,
+    maturity_date: str | None = None,
+    loan_status: str | None = None,
+    notes: str | None = None,
+    card_brand: str | None = None,
+    card_level: str | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     ws_id = await resolve_workspace_id(session, ctx)
@@ -143,6 +162,9 @@ async def propose_create_account(
         )
     ).first()
     parsed_balance_date = parse_date(balance_date) if balance_date else None
+    parsed_maturity_date = parse_date(maturity_date) if maturity_date else None
+    if maturity_date and parsed_maturity_date is None:
+        return {"error": "invalid maturity_date"}
     proposed = {
         "name": clean_name,
         "type": type,
@@ -150,6 +172,17 @@ async def propose_create_account(
         "balance_date": parsed_balance_date.isoformat() if parsed_balance_date else None,
         "currency": currency.upper(),
         "credit_limit": float(credit_limit) if credit_limit is not None else None,
+        "statement_close_day": statement_close_day,
+        "payment_due_day": payment_due_day,
+        "minimum_payment": float(minimum_payment) if minimum_payment is not None else None,
+        "interest_rate": float(interest_rate) if interest_rate is not None else None,
+        "original_principal": float(original_principal) if original_principal is not None else None,
+        "scheduled_payment": float(scheduled_payment) if scheduled_payment is not None else None,
+        "maturity_date": parsed_maturity_date.isoformat() if parsed_maturity_date else None,
+        "loan_status": loan_status,
+        "notes": notes,
+        "card_brand": card_brand,
+        "card_level": card_level,
     }
     preview = {
         "kind": "create_account",
@@ -169,9 +202,20 @@ async def propose_create_account(
                     name=clean_name,
                     type=type,
                     balance=Decimal(str(balance)),
-                    balance_date=parse_date(balance_date),
+                    balance_date=parsed_balance_date,
                     currency=currency.upper(),
                     credit_limit=Decimal(str(credit_limit)) if credit_limit is not None else None,
+                    statement_close_day=statement_close_day,
+                    payment_due_day=payment_due_day,
+                    minimum_payment=Decimal(str(minimum_payment)) if minimum_payment is not None else None,
+                    interest_rate=Decimal(str(interest_rate)) if interest_rate is not None else None,
+                    original_principal=Decimal(str(original_principal)) if original_principal is not None else None,
+                    scheduled_payment=Decimal(str(scheduled_payment)) if scheduled_payment is not None else None,
+                    maturity_date=parsed_maturity_date,
+                    loan_status=loan_status,
+                    notes=notes,
+                    card_brand=card_brand,
+                    card_level=card_level,
                 ),
             )
         except ValueError as exc:
@@ -184,21 +228,30 @@ async def propose_create_account(
     name="propose_update_account",
     description=_PROPOSAL_PREFACE
     + (
-        "Preview changes to an existing account, including its name, type, "
-        "opening/current balance for manual accounts, balance date, or credit limit."
+        "Preview changes to any editable account field, including credit-card cycle "
+        "metadata and loan/debt APR, due day, principal, payment, maturity, status, and notes."
     ),
     parameters={
         "type": "object",
         "properties": {
             "account_id": {"type": "string", "format": "uuid"},
             "name": {"type": "string", "minLength": 1, "maxLength": 255},
-            "type": {
-                "type": "string",
-                "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"],
-            },
+            "display_name": {"type": "string", "maxLength": 255},
+            "type": {"type": "string", "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"]},
             "balance": {"type": "number"},
             "balance_date": {"type": "string", "format": "date"},
-            "credit_limit": {"type": "number", "exclusiveMinimum": 0},
+            "credit_limit": {"type": "number", "minimum": 0},
+            "statement_close_day": {"type": "integer", "minimum": 1, "maximum": 31},
+            "payment_due_day": {"type": "integer", "minimum": 1, "maximum": 31},
+            "minimum_payment": {"type": "number", "minimum": 0},
+            "interest_rate": {"type": "number", "minimum": 0},
+            "original_principal": {"type": "number", "minimum": 0},
+            "scheduled_payment": {"type": "number", "minimum": 0},
+            "maturity_date": {"type": "string", "format": "date"},
+            "loan_status": {"type": "string", "maxLength": 50},
+            "notes": {"type": "string"},
+            "card_brand": {"type": "string", "maxLength": 50},
+            "card_level": {"type": "string", "maxLength": 50},
             "apply": _APPLY_FIELD,
         },
         "required": ["account_id"],
@@ -213,10 +266,22 @@ async def propose_update_account(
     ctx: CallContext,
     account_id: str,
     name: str | None = None,
+    display_name: str | None = None,
     type: str | None = None,
     balance: float | None = None,
     balance_date: str | None = None,
     credit_limit: float | None = None,
+    statement_close_day: int | None = None,
+    payment_due_day: int | None = None,
+    minimum_payment: float | None = None,
+    interest_rate: float | None = None,
+    original_principal: float | None = None,
+    scheduled_payment: float | None = None,
+    maturity_date: str | None = None,
+    loan_status: str | None = None,
+    notes: str | None = None,
+    card_brand: str | None = None,
+    card_level: str | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     ws_id = await resolve_workspace_id(session, ctx)
@@ -226,19 +291,53 @@ async def propose_update_account(
         return {"error": "account not found"}
 
     changes: dict[str, Any] = {}
-    if name is not None:
-        changes["name"] = name.strip()
-    if type is not None:
-        changes["type"] = type
-    if balance is not None:
-        changes["balance"] = float(balance)
+    simple_values = {
+        "name": name.strip() if name is not None else None,
+        "display_name": display_name,
+        "type": type,
+        "balance": float(balance) if balance is not None else None,
+        "credit_limit": float(credit_limit) if credit_limit is not None else None,
+        "statement_close_day": statement_close_day,
+        "payment_due_day": payment_due_day,
+        "minimum_payment": float(minimum_payment) if minimum_payment is not None else None,
+        "interest_rate": float(interest_rate) if interest_rate is not None else None,
+        "original_principal": float(original_principal) if original_principal is not None else None,
+        "scheduled_payment": float(scheduled_payment) if scheduled_payment is not None else None,
+        "loan_status": loan_status,
+        "notes": notes,
+        "card_brand": card_brand,
+        "card_level": card_level,
+    }
+    provided = {
+        "name": name is not None,
+        "display_name": display_name is not None,
+        "type": type is not None,
+        "balance": balance is not None,
+        "credit_limit": credit_limit is not None,
+        "statement_close_day": statement_close_day is not None,
+        "payment_due_day": payment_due_day is not None,
+        "minimum_payment": minimum_payment is not None,
+        "interest_rate": interest_rate is not None,
+        "original_principal": original_principal is not None,
+        "scheduled_payment": scheduled_payment is not None,
+        "loan_status": loan_status is not None,
+        "notes": notes is not None,
+        "card_brand": card_brand is not None,
+        "card_level": card_level is not None,
+    }
+    for key, was_provided in provided.items():
+        if was_provided:
+            changes[key] = simple_values[key]
     if balance_date is not None:
         parsed_balance_date = parse_date(balance_date)
         if parsed_balance_date is None:
             return {"error": "invalid balance_date"}
         changes["balance_date"] = parsed_balance_date.isoformat()
-    if credit_limit is not None:
-        changes["credit_limit"] = float(credit_limit)
+    if maturity_date is not None:
+        parsed_maturity_date = parse_date(maturity_date)
+        if parsed_maturity_date is None:
+            return {"error": "invalid maturity_date"}
+        changes["maturity_date"] = parsed_maturity_date.isoformat()
 
     preview = {
         "kind": "update_account",
@@ -249,6 +348,8 @@ async def propose_update_account(
             "balance": num(account.balance),
             "currency": account.currency,
             "credit_limit": num(account.credit_limit),
+            "payment_due_day": account.payment_due_day,
+            "interest_rate": num(account.interest_rate),
             "connected": account.connection_id is not None,
         },
         "changes": changes,
@@ -258,12 +359,12 @@ async def propose_update_account(
         if not changes:
             return {**preview, "error": "no changes requested"}
         update_data: dict[str, Any] = dict(changes)
-        if "balance" in update_data:
-            update_data["balance"] = Decimal(str(update_data["balance"]))
-        if "credit_limit" in update_data:
-            update_data["credit_limit"] = Decimal(str(update_data["credit_limit"]))
-        if "balance_date" in update_data:
-            update_data["balance_date"] = parse_date(update_data["balance_date"])
+        for key in ("balance", "credit_limit", "minimum_payment", "interest_rate", "original_principal", "scheduled_payment"):
+            if key in update_data and update_data[key] is not None:
+                update_data[key] = Decimal(str(update_data[key]))
+        for key in ("balance_date", "maturity_date"):
+            if key in update_data:
+                update_data[key] = parse_date(update_data[key])
         try:
             updated = await account_service.update_account(
                 session, account.id, ws_id, AccountUpdate(**update_data)
@@ -274,6 +375,52 @@ async def propose_update_account(
             return {**preview, "error": "account not found"}
         return {**preview, "applied": True, "id": str(updated.id)}
     return preview
+
+
+@tool(
+    name="propose_account_lifecycle",
+    description=_PROPOSAL_PREFACE + "Close, reopen, or permanently delete an account.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "account_id": {"type": "string", "format": "uuid"},
+            "action": {"type": "string", "enum": ["close", "reopen", "delete"]},
+            "apply": _APPLY_FIELD,
+        },
+        "required": ["account_id", "action"],
+        "additionalProperties": False,
+    },
+    is_proposal=True,
+    tags=["propose", "accounts"],
+)
+async def propose_account_lifecycle(
+    *, session: AsyncSession, ctx: CallContext, account_id: str, action: str, apply: bool = False
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    acc_id = parse_uuid(account_id)
+    account = await account_service.get_account(session, acc_id, ws_id) if acc_id else None
+    if account is None:
+        return {"error": "account not found"}
+    preview = {
+        "kind": "account_lifecycle",
+        "action": action,
+        "account": {"id": str(account.id), "name": account.name, "type": account.type},
+        "apply_endpoint": f"/api/accounts/{account.id}",
+    }
+    if not _can_apply(ctx, apply):
+        return preview
+    if action == "close":
+        changed = await account_service.close_account(session, account.id, ws_id)
+    elif action == "reopen":
+        changed = await account_service.reopen_account(session, account.id, ws_id)
+    elif action == "delete":
+        deleted = await account_service.delete_account(session, account.id, ws_id)
+        return {**preview, "applied": True, "deleted": bool(deleted)}
+    else:
+        return {**preview, "error": "unsupported action"}
+    if changed is None:
+        return {**preview, "error": "account not found"}
+    return {**preview, "applied": True, "id": str(changed.id)}
 
 
 @tool(
@@ -834,6 +981,8 @@ async def propose_create_recurring_transaction(
     end_date: str | None = None,
     category_id: str | None = None,
     currency: str | None = None,
+    skip_first: bool = False,
+    auto_generate: bool = True,
     apply: bool = False,
 ) -> dict[str, Any]:
     if frequency in ("monthly", "quarterly") and not day_of_month:
@@ -878,6 +1027,8 @@ async def propose_create_recurring_transaction(
             "account_name": acc.name,
             "category_id": str(cat.id) if cat else None,
             "category_name": cat.name if cat else None,
+            "skip_first": bool(skip_first),
+            "auto_generate": bool(auto_generate),
         },
         "apply_endpoint": "POST /api/recurring-transactions",
     }
@@ -898,6 +1049,8 @@ async def propose_create_recurring_transaction(
                 end_date=target_end,
                 account_id=acc.id,
                 category_id=cat.id if cat else None,
+                skip_first=bool(skip_first),
+                auto_generate=bool(auto_generate),
             ),
         )
         return {**preview, "applied": True, "id": str(created.id)}
@@ -921,11 +1074,16 @@ async def propose_create_recurring_transaction(
             "recurring_id": {"type": "string", "format": "uuid"},
             "description": {"type": "string", "minLength": 1, "maxLength": 500},
             "amount": {"type": "number", "exclusiveMinimum": 0},
+            "currency": {"type": "string"},
+            "type": {"type": "string", "enum": ["debit", "credit"]},
             "frequency": {"type": "string", "enum": ["weekly", "monthly", "quarterly", "yearly"]},
             "day_of_month": {"type": "integer", "minimum": 1, "maximum": 31},
+            "start_date": {"type": "string", "format": "date"},
             "end_date": {"type": "string", "format": "date"},
+            "account_id": {"type": "string", "format": "uuid"},
             "category_id": {"type": "string", "format": "uuid"},
             "is_active": {"type": "boolean"},
+            "auto_generate": {"type": "boolean"},
             "apply": _APPLY_FIELD,
         },
         "required": ["recurring_id"],
@@ -941,11 +1099,16 @@ async def propose_update_recurring_transaction(
     recurring_id: str,
     description: str | None = None,
     amount: float | None = None,
+    currency: str | None = None,
+    type: str | None = None,
     frequency: str | None = None,
     day_of_month: int | None = None,
+    start_date: str | None = None,
     end_date: str | None = None,
+    account_id: str | None = None,
     category_id: str | None = None,
     is_active: bool | None = None,
+    auto_generate: bool | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     ws_id = await resolve_workspace_id(session, ctx)
@@ -959,6 +1122,18 @@ async def propose_update_recurring_transaction(
     ).scalar_one_or_none()
     if rt is None:
         return {"error": "recurring transaction not found"}
+
+    new_account = None
+    if account_id:
+        new_account = (
+            await session.execute(
+                select(Account).where(
+                    Account.id == parse_uuid(account_id), Account.workspace_id == ws_id
+                )
+            )
+        ).scalar_one_or_none()
+        if new_account is None:
+            return {"error": "account not found"}
 
     cat = None
     if category_id:
@@ -977,17 +1152,30 @@ async def propose_update_recurring_transaction(
         changes["description"] = description.strip()
     if amount is not None:
         changes["amount"] = float(amount)
+    if currency is not None:
+        changes["currency"] = currency.upper()
+    if type is not None:
+        changes["type"] = type
     if frequency is not None:
         changes["frequency"] = frequency
     if day_of_month is not None:
         changes["day_of_month"] = int(day_of_month)
+    if start_date is not None:
+        parsed_start = parse_date(start_date)
+        if parsed_start is None:
+            return {"error": "invalid start_date"}
+        changes["start_date"] = parsed_start.isoformat()
     if end_date is not None:
         parsed_end = parse_date(end_date)
         changes["end_date"] = parsed_end.isoformat() if parsed_end else None
+    if new_account is not None:
+        changes["account_id"] = str(new_account.id)
     if cat is not None:
         changes["category_id"] = str(cat.id)
     if is_active is not None:
         changes["is_active"] = bool(is_active)
+    if auto_generate is not None:
+        changes["auto_generate"] = bool(auto_generate)
 
     if not changes:
         return {"error": "no changes provided"}
@@ -999,6 +1187,8 @@ async def propose_update_recurring_transaction(
             "description": rt.description,
             "amount": num(rt.amount),
             "currency": rt.currency,
+            "type": rt.type,
+            "account_id": str(rt.account_id) if rt.account_id else None,
             "frequency": rt.frequency,
             "day_of_month": rt.day_of_month,
             "is_active": bool(getattr(rt, "is_active", True)),
@@ -1013,18 +1203,28 @@ async def propose_update_recurring_transaction(
             update_data["description"] = changes["description"]
         if "amount" in changes:
             update_data["amount"] = Decimal(str(changes["amount"]))
+        if "currency" in changes:
+            update_data["currency"] = changes["currency"]
+        if "type" in changes:
+            update_data["type"] = changes["type"]
         if "frequency" in changes:
             update_data["frequency"] = changes["frequency"]
         if "day_of_month" in changes:
             update_data["day_of_month"] = changes["day_of_month"]
+        if "start_date" in changes:
+            update_data["start_date"] = parse_date(changes["start_date"])
         if "end_date" in changes:
             update_data["end_date"] = (
                 parse_date(changes["end_date"]) if changes["end_date"] else None
             )
+        if "account_id" in changes:
+            update_data["account_id"] = parse_uuid(changes["account_id"])
         if "category_id" in changes:
             update_data["category_id"] = parse_uuid(changes["category_id"])
         if "is_active" in changes:
             update_data["is_active"] = changes["is_active"]
+        if "auto_generate" in changes:
+            update_data["auto_generate"] = changes["auto_generate"]
         updated = await recurring_transaction_service.update_recurring_transaction(
             session, rt.id, ws_id, RecurringTransactionUpdate(**update_data)
         )

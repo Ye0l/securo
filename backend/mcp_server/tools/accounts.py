@@ -44,7 +44,21 @@ async def list_accounts(
             "balance": num(r.get("balance")),
             "balance_primary": num(r.get("balance_primary")),
             "is_closed": bool(r.get("is_closed", False)),
-            "institution": r.get("institution"),
+            "institution": r.get("institution_name") or r.get("institution"),
+            "credit_limit": num(r.get("credit_limit")),
+            "available_credit": num(r.get("available_credit")),
+            "statement_close_day": r.get("statement_close_day"),
+            "payment_due_day": r.get("payment_due_day"),
+            "next_due_date": (lambda v: v.isoformat() if v is not None and hasattr(v, "isoformat") else v)(r.get("next_due_date")),
+            "minimum_payment": num(r.get("minimum_payment")),
+            "interest_rate": num(r.get("interest_rate")),
+            "original_principal": num(r.get("original_principal")),
+            "scheduled_payment": num(r.get("scheduled_payment")),
+            "maturity_date": (lambda v: v.isoformat() if v is not None and hasattr(v, "isoformat") else v)(r.get("maturity_date")),
+            "loan_status": r.get("loan_status"),
+            "notes": r.get("notes"),
+            "card_brand": r.get("card_brand"),
+            "card_level": r.get("card_level"),
         })
     return {"items": items, "total": len(items)}
 
@@ -117,3 +131,105 @@ async def get_account_summary(
         if hasattr(v, "isoformat"):
             summary[k] = v.isoformat()
     return summary
+
+
+@tool(
+    name="get_account",
+    description="Get one account with full card/loan metadata, current balance, due dates, and notes.",
+    parameters={
+        "type": "object",
+        "properties": {"account_id": {"type": "string", "format": "uuid"}},
+        "required": ["account_id"],
+        "additionalProperties": False,
+    },
+    tags=["read", "accounts"],
+)
+async def get_account(*, session: AsyncSession, ctx: CallContext, account_id: str) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    acc_id = parse_uuid(account_id)
+    if acc_id is None:
+        return {"error": "account not found"}
+    account = await account_service.get_account(session, acc_id, ws_id)
+    if account is None:
+        return {"error": "account not found"}
+    payload = account_service.serialize_account(account, None, None, account.connection)
+    out: dict[str, Any] = {}
+    for key, value in payload.items():
+        if hasattr(value, "isoformat"):
+            out[key] = value.isoformat()
+        elif key in {
+            "balance", "current_balance", "previous_balance", "balance_primary", "credit_limit",
+            "available_credit", "minimum_payment", "interest_rate", "original_principal", "scheduled_payment"
+        }:
+            out[key] = num(value)
+        else:
+            out[key] = str(value) if key in {"id", "user_id", "connection_id", "external_id"} and value is not None else value
+    return out
+
+
+@tool(
+    name="get_account_balance_history",
+    description="Get an account's daily balance history over an optional date range.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "account_id": {"type": "string", "format": "uuid"},
+            "from_date": {"type": "string", "format": "date"},
+            "to_date": {"type": "string", "format": "date"},
+        },
+        "required": ["account_id"],
+        "additionalProperties": False,
+    },
+    tags=["read", "accounts"],
+)
+async def get_account_balance_history(
+    *, session: AsyncSession, ctx: CallContext, account_id: str,
+    from_date: str | None = None, to_date: str | None = None,
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    acc_id = parse_uuid(account_id)
+    if acc_id is None:
+        return {"error": "account not found"}
+    rows = await account_service.get_account_balance_history(
+        session, acc_id, ws_id, date_from=parse_date(from_date), date_to=parse_date(to_date)
+    )
+    if rows is None:
+        return {"error": "account not found"}
+    return {"items": rows, "total": len(rows)}
+
+
+@tool(
+    name="list_credit_card_bills",
+    description="List credit-card bills for an account, newest due date first.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "account_id": {"type": "string", "format": "uuid"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 24},
+        },
+        "required": ["account_id"],
+        "additionalProperties": False,
+    },
+    tags=["read", "accounts", "credit_cards"],
+)
+async def list_credit_card_bills(
+    *, session: AsyncSession, ctx: CallContext, account_id: str, limit: int = 24
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    acc_id = parse_uuid(account_id)
+    if acc_id is None:
+        return {"error": "account not found"}
+    rows = await account_service.get_credit_card_bills(session, acc_id, ws_id, limit=max(1, min(limit, 200)))
+    if rows is None:
+        return {"error": "account not found"}
+    return {
+        "items": [
+            {
+                "id": str(r.id), "account_id": str(r.account_id), "external_id": r.external_id,
+                "due_date": r.due_date.isoformat(), "total_amount": num(r.total_amount),
+                "currency": r.currency, "minimum_payment": num(r.minimum_payment),
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+    }
