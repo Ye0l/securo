@@ -291,6 +291,7 @@ async def generate_pending(
                     date=recurring.next_occurrence,
                     type=recurring.type,
                     source="recurring",
+                    status="pending",
                     recurring_transaction_id=recurring.id,
                 )
                 account = await session.get(Account, recurring.account_id)

@@ -716,6 +716,7 @@ async def import_transactions(
         )
         if placeholder and not placeholder.is_ignored:
             placeholder.source = source
+            placeholder.status = "posted"
             placeholder.external_id = txn_data.external_id
             placeholder.import_id = import_log.id
             if import_payee_raw and not placeholder.payee:

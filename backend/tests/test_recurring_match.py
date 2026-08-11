@@ -268,6 +268,7 @@ async def test_generate_pending_stamps_placeholder_link(session, test_user, test
     )
     tx = result.scalar_one()
     assert tx.recurring_transaction_id == bill.id
+    assert tx.status == "pending"
 
 
 @pytest.mark.asyncio
