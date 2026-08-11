@@ -617,6 +617,7 @@ export default function AccountDetailPage() {
 
   // Whether to use primary currency amounts (for foreign-currency accounts with toggle, or domestic accounts with foreign txs)
   const isCreditCard = account?.type === 'credit_card'
+  const isLoan = account?.type === 'loan'
   const isForeignCurrency = account ? account.currency !== userCurrency : false
   const usePrimary = !isForeignCurrency || showPrimary
   const displayCurrency = (isForeignCurrency && !showPrimary) ? (account?.currency || userCurrency) : userCurrency
@@ -767,7 +768,7 @@ export default function AccountDetailPage() {
               <span className="text-xs font-medium text-muted-foreground">
                 {t(`accounts.type${account.type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join('')}`, account.type)}
               </span>
-              {isCreditCard && account.next_due_date && (() => {
+              {(isCreditCard || isLoan) && account.next_due_date && (() => {
                 const d = daysUntil(account.next_due_date)
                 if (d > 7) return null
                 const cfg = d < 0
@@ -1151,6 +1152,62 @@ export default function AccountDetailPage() {
               ))}
             </p>
           </div>
+        </div>
+      )}
+
+      {isLoan && (
+        <div className="bg-card rounded-xl border border-border shadow-sm p-4 sm:p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {t('accounts.loanDetails')}
+            </p>
+            {account.loan_status && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-foreground/5 text-foreground text-[10px] sm:text-xs font-semibold">
+                {account.loan_status}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.interestRate')}</p>
+              <p className="text-sm font-semibold tabular-nums">{account.interest_rate != null ? `${Number(account.interest_rate).toFixed(2)}%` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.paymentDueDay')}</p>
+              <p className="text-sm font-semibold tabular-nums">{account.payment_due_day != null ? account.payment_due_day : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.originalPrincipal')}</p>
+              <p className="text-sm font-semibold tabular-nums">{account.original_principal != null ? mask(formatCurrency(Number(account.original_principal), account.currency, locale)) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.scheduledPayment')}</p>
+              <p className="text-sm font-semibold tabular-nums">{account.scheduled_payment != null ? mask(formatCurrency(Number(account.scheduled_payment), account.currency, locale)) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.dueDate')}</p>
+              <p className="text-sm font-semibold">{account.next_due_date ? formatDateStr(account.next_due_date, dateLocale) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.maturityDate')}</p>
+              <p className="text-sm font-semibold">{account.maturity_date ? formatDateStr(account.maturity_date, dateLocale) : '—'}</p>
+            </div>
+            {account.credit_limit != null && (
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.creditLimit')}</p>
+                <p className="text-sm font-semibold tabular-nums">{mask(formatCurrency(Number(account.credit_limit), account.currency, locale))}</p>
+              </div>
+            )}
+            {account.available_credit != null && (
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">{t('accounts.availableCredit')}</p>
+                <p className="text-sm font-semibold tabular-nums">{mask(formatCurrency(Number(account.available_credit), account.currency, locale))}</p>
+              </div>
+            )}
+          </div>
+          {account.notes && (
+            <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground whitespace-pre-wrap">{account.notes}</p>
+          )}
         </div>
       )}
 

@@ -45,6 +45,7 @@ const ACCOUNT_TYPE_OPTIONS = [
   { value: 'checking', labelKey: 'accounts.typeChecking' },
   { value: 'savings', labelKey: 'accounts.typeSavings' },
   { value: 'credit_card', labelKey: 'accounts.typeCreditCard' },
+  { value: 'loan', labelKey: 'accounts.typeLoan' },
   { value: 'investment', labelKey: 'accounts.typeInvestment' },
   { value: 'wallet', labelKey: 'accounts.typeWallet' },
 ] as const
@@ -671,6 +672,12 @@ function AccountDialog({
     credit_limit?: number | null
     statement_close_day?: number | null
     payment_due_day?: number | null
+    interest_rate?: number | null
+    original_principal?: number | null
+    scheduled_payment?: number | null
+    maturity_date?: string | null
+    loan_status?: string | null
+    notes?: string | null
   }) => void
   loading: boolean
 }) {
@@ -691,6 +698,12 @@ function AccountDialog({
   const [creditLimit, setCreditLimit] = useState(account?.credit_limit?.toString() ?? '')
   const [statementCloseDay, setStatementCloseDay] = useState(account?.statement_close_day?.toString() ?? '')
   const [paymentDueDay, setPaymentDueDay] = useState(account?.payment_due_day?.toString() ?? '')
+  const [interestRate, setInterestRate] = useState(account?.interest_rate?.toString() ?? '')
+  const [originalPrincipal, setOriginalPrincipal] = useState(account?.original_principal?.toString() ?? '')
+  const [scheduledPayment, setScheduledPayment] = useState(account?.scheduled_payment?.toString() ?? '')
+  const [maturityDate, setMaturityDate] = useState(account?.maturity_date ?? '')
+  const [loanStatus, setLoanStatus] = useState(account?.loan_status ?? '')
+  const [notes, setNotes] = useState(account?.notes ?? '')
 
   useEffect(() => {
     setName(account?.name ?? '')
@@ -702,6 +715,12 @@ function AccountDialog({
     setCreditLimit(account?.credit_limit?.toString() ?? '')
     setStatementCloseDay(account?.statement_close_day?.toString() ?? '')
     setPaymentDueDay(account?.payment_due_day?.toString() ?? '')
+    setInterestRate(account?.interest_rate?.toString() ?? '')
+    setOriginalPrincipal(account?.original_principal?.toString() ?? '')
+    setScheduledPayment(account?.scheduled_payment?.toString() ?? '')
+    setMaturityDate(account?.maturity_date ?? '')
+    setLoanStatus(account?.loan_status ?? '')
+    setNotes(account?.notes ?? '')
   }, [account])
 
   return (
@@ -717,6 +736,7 @@ function AccountDialog({
           onSubmit={(e) => {
             e.preventDefault()
             const isCC = type === 'credit_card'
+            const isLoan = type === 'loan'
             const parseDay = (v: string) => {
               const n = parseInt(v, 10)
               return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null
@@ -730,6 +750,16 @@ function AccountDialog({
                 credit_limit: creditLimit !== '' ? parseFloat(creditLimit) : null,
                 statement_close_day: parseDay(statementCloseDay),
                 payment_due_day: parseDay(paymentDueDay),
+              }),
+              ...(isLoan && {
+                credit_limit: creditLimit !== '' ? parseFloat(creditLimit) : null,
+                payment_due_day: parseDay(paymentDueDay),
+                interest_rate: interestRate !== '' ? parseFloat(interestRate) : null,
+                original_principal: originalPrincipal !== '' ? parseFloat(originalPrincipal) : null,
+                scheduled_payment: scheduledPayment !== '' ? parseFloat(scheduledPayment) : null,
+                maturity_date: maturityDate || null,
+                loan_status: loanStatus.trim() || null,
+                notes: notes.trim() || null,
               }),
             })
           }}
@@ -860,6 +890,53 @@ function AccountDialog({
                     placeholder={t('accounts.dayOfMonthHint')}
                   />
                 </div>
+              </div>
+            </div>
+          )}
+          {type === 'loan' && (
+            <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t('accounts.interestRate')}</Label>
+                  <Input type="number" step="0.0001" min="0" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="0.00" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('accounts.paymentDueDay')}</Label>
+                  <Input type="number" min="1" max="31" value={paymentDueDay} onChange={(e) => setPaymentDueDay(e.target.value)} placeholder={t('accounts.dayOfMonthHint')} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t('accounts.originalPrincipal')}</Label>
+                  <Input type="number" step="0.01" min="0" value={originalPrincipal} onChange={(e) => setOriginalPrincipal(e.target.value)} placeholder="0.00" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('accounts.scheduledPayment')}</Label>
+                  <Input type="number" step="0.01" min="0" value={scheduledPayment} onChange={(e) => setScheduledPayment(e.target.value)} placeholder="0.00" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t('accounts.maturityDate')}</Label>
+                  <DatePickerInput value={maturityDate} onChange={setMaturityDate} className="w-full justify-start" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('accounts.loanStatus')}</Label>
+                  <Input value={loanStatus} onChange={(e) => setLoanStatus(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('accounts.creditLimit')}</Label>
+                <Input type="number" step="0.01" min="0" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="0.00" />
+                <p className="text-xs text-muted-foreground">{t('accounts.loanCreditLimitHint')}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('accounts.notes')}</Label>
+                <textarea
+                  className="min-h-20 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
               </div>
             </div>
           )}

@@ -148,6 +148,12 @@ export interface Account {
   next_close_date: string | null
   next_due_date: string | null
   minimum_payment: number | null
+  interest_rate: number | null
+  original_principal: number | null
+  scheduled_payment: number | null
+  maturity_date: string | null
+  loan_status: string | null
+  notes: string | null
   card_brand: string | null
   card_level: string | null
   is_closed: boolean
