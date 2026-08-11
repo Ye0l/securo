@@ -130,10 +130,10 @@ async def get_account(
     ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
-    account = await account_service.get_account(session, account_id, ctx.workspace.id)
+    account = await account_service.get_account_view(session, account_id, ctx.workspace.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account_service.serialize_account(account, None, None, account.connection)
+    return account
 
 
 @router.post("", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
@@ -143,7 +143,7 @@ async def create_account(
     session: AsyncSession = Depends(get_async_session),
 ):
     account = await account_service.create_account(session, ctx.workspace.id, ctx.user_id, data)
-    return account_service.serialize_account(account, None, None)
+    return await account_service.get_account_view(session, account.id, ctx.workspace.id)
 
 
 @router.patch("/{account_id}", response_model=AccountRead)
@@ -159,7 +159,7 @@ async def update_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account_service.serialize_account(account, None, None)
+    return await account_service.get_account_view(session, account.id, ctx.workspace.id)
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -188,7 +188,7 @@ async def close_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+    return await account_service.get_account_view(session, account.id, ctx.workspace.id)
 
 
 @router.post("/{account_id}/reopen", response_model=AccountRead)
@@ -203,4 +203,4 @@ async def reopen_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+    return await account_service.get_account_view(session, account.id, ctx.workspace.id)

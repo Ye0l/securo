@@ -239,6 +239,20 @@ async def get_credit_card_bills(
     return list(result.scalars().all())
 
 
+async def get_account_view(
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
+) -> Optional[dict]:
+    """Return the fully computed account payload used by list/detail surfaces.
+
+    For manual accounts, ``Account.balance`` is the stored opening/raw balance;
+    the actual current balance comes from the transaction ledger. Reusing the
+    list-account aggregation here prevents detail endpoints from accidentally
+    reporting ``current_balance=0`` after imports or manual transactions.
+    """
+    rows = await get_accounts(session, workspace_id, include_closed=True)
+    return next((row for row in rows if row.get("id") == account_id), None)
+
+
 async def get_account(session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Account]:
     result = await session.execute(
         select(Account)

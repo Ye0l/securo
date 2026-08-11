@@ -41,7 +41,9 @@ async def list_accounts(
             "name": r.get("name"),
             "type": r.get("type"),
             "currency": r.get("currency"),
-            "balance": num(r.get("balance")),
+            "balance": num(r.get("current_balance")),
+            "current_balance": num(r.get("current_balance")),
+            "stored_balance": num(r.get("balance")),
             "balance_primary": num(r.get("balance_primary")),
             "is_closed": bool(r.get("is_closed", False)),
             "institution": r.get("institution_name") or r.get("institution"),
@@ -165,10 +167,9 @@ async def get_account(*, session: AsyncSession, ctx: CallContext, account_id: st
     acc_id = parse_uuid(account_id)
     if acc_id is None:
         return {"error": "account not found"}
-    account = await account_service.get_account(session, acc_id, ws_id)
-    if account is None:
+    payload = await account_service.get_account_view(session, acc_id, ws_id)
+    if payload is None:
         return {"error": "account not found"}
-    payload = account_service.serialize_account(account, None, None, account.connection)
     out: dict[str, Any] = {}
     for key, value in payload.items():
         if hasattr(value, "isoformat"):
@@ -180,6 +181,9 @@ async def get_account(*, session: AsyncSession, ctx: CallContext, account_id: st
             out[key] = num(value)
         else:
             out[key] = str(value) if key in {"id", "user_id", "connection_id", "external_id"} and value is not None else value
+    out["stored_balance"] = num(payload.get("balance"))
+    out["balance"] = num(payload.get("current_balance"))
+    out["current_balance"] = num(payload.get("current_balance"))
     return out
 
 
