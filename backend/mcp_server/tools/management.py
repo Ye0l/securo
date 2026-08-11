@@ -93,7 +93,15 @@ def _summary(value: Any) -> Any:
     parameters={
         "type": "object",
         "properties": {
-            "operation": {"type": "string", "enum": _OPERATIONS},
+            "operation": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "Stable operation name. The server validates supported operations at runtime; "
+                    "this field intentionally has no enum so newly-added operations do not require "
+                    "clients to refresh a cached MCP tool schema."
+                ),
+            },
             "target_id": {"type": "string", "format": "uuid"},
             "secondary_id": {"type": "string", "format": "uuid"},
             "payload": {"type": "object", "additionalProperties": True, "default": {}},
