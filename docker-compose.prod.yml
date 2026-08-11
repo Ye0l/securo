@@ -50,7 +50,7 @@ x-backend-env: &backend-env
   AGENTS_MCP_JWT_SECRET: ${AGENTS_MCP_JWT_SECRET:-dev-mcp-secret-change-in-production}
   # TTL for tokens minted from /agents/connections → "External MCP access".
   # Used by Claude Desktop, n8n, custom clients plugging into Securo.
-  AGENTS_MCP_EXTERNAL_TTL_DAYS: ${AGENTS_MCP_EXTERNAL_TTL_DAYS:-90}
+  AGENTS_MCP_EXTERNAL_TTL_DAYS: ${AGENTS_MCP_EXTERNAL_TTL_DAYS:-0}
   # LLM provider config — only the provider you actually use needs setting.
   AGENTS_DEFAULT_PROVIDER: ${AGENTS_DEFAULT_PROVIDER:-ollama}
   AGENTS_DEFAULT_MODEL: ${AGENTS_DEFAULT_MODEL:-}

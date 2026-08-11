@@ -177,6 +177,10 @@ def serialize_account(
         cycle = get_cycle_dates(acc.statement_close_day, acc.payment_due_day)
         payload["next_close_date"] = cycle["next_close_date"]
         payload["next_due_date"] = cycle["next_due_date"]
+    elif acc.type == "loan" and acc.credit_limit is not None:
+        # Manual overdraft/credit-line accounts store debt as a negative balance.
+        # A 600,000 limit with -599,908 drawn therefore has 92 remaining.
+        payload["available_credit"] = float(max(Decimal("0"), acc.credit_limit + Decimal(str(resolved_balance))))
 
     return payload
 
@@ -232,6 +236,7 @@ async def create_account(
     data: AccountCreate,
 ) -> Account:
     is_cc = data.type == "credit_card"
+    supports_credit_limit = data.type in {"credit_card", "loan"}
     account = Account(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -239,7 +244,7 @@ async def create_account(
         type=data.type,
         balance=data.balance,
         currency=data.currency,
-        credit_limit=data.credit_limit if is_cc else None,
+        credit_limit=data.credit_limit if supports_credit_limit else None,
         statement_close_day=data.statement_close_day if is_cc else None,
         payment_due_day=data.payment_due_day if is_cc else None,
         minimum_payment=data.minimum_payment if is_cc else None,
@@ -350,8 +355,9 @@ async def update_account(
     for key, value in update_data.items():
         setattr(account, key, value)
 
-    if account.type != "credit_card":
+    if account.type not in {"credit_card", "loan"}:
         account.credit_limit = None
+    if account.type != "credit_card":
         account.statement_close_day = None
         account.payment_due_day = None
         account.minimum_payment = None

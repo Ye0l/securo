@@ -1018,3 +1018,68 @@ async def test_propose_create_payee_rule_external_apply_writes(
     )).scalar_one()
     assert any(c.get("value") == "UBER" for c in row.conditions)
     assert any(a.get("value") == str(cat.id) for a in row.actions)
+
+
+async def test_propose_create_account_external_apply_writes_overdraft(
+    session: AsyncSession, test_user
+):
+    from sqlalchemy import select
+    from app.models.account import Account
+    from app.services import account_service
+
+    handler = REGISTRY["propose_create_account"].handler
+    ctx = CallContext(user_id=test_user.id, external=True)
+
+    result = await handler(
+        session=session,
+        ctx=ctx,
+        name="IBK overdraft",
+        type="loan",
+        balance=-599_908,
+        currency="KRW",
+        credit_limit=600_000,
+        apply=True,
+    )
+    assert result.get("applied") is True
+    new_id = uuid.UUID(result["id"])
+
+    account = (await session.execute(select(Account).where(Account.id == new_id))).scalar_one()
+    assert account.type == "loan"
+    assert float(account.credit_limit) == 600_000
+
+    ws_id = account.workspace_id
+    rows = await account_service.get_accounts(session, ws_id)
+    row = next(r for r in rows if r["id"] == new_id)
+    assert row["current_balance"] == -599_908
+    assert row["available_credit"] == 92
+
+
+async def test_propose_update_account_external_apply_updates_balance(
+    session: AsyncSession, test_user
+):
+    from app.schemas.account import AccountCreate
+    from app.services import account_service
+    from mcp_server.tools._helpers import resolve_workspace_id
+
+    ctx = CallContext(user_id=test_user.id, external=True)
+    ws_id = await resolve_workspace_id(session, ctx)
+    account = await account_service.create_account(
+        session,
+        ws_id,
+        test_user.id,
+        AccountCreate(name="Toss", type="checking", balance=0, currency="KRW"),
+    )
+
+    handler = REGISTRY["propose_update_account"].handler
+    result = await handler(
+        session=session,
+        ctx=ctx,
+        account_id=str(account.id),
+        balance=228_223,
+        apply=True,
+    )
+    assert result.get("applied") is True
+
+    rows = await account_service.get_accounts(session, ws_id)
+    row = next(r for r in rows if r["id"] == account.id)
+    assert row["current_balance"] == 228_223

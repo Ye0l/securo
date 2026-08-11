@@ -27,6 +27,7 @@ from app.models.category import Category
 from app.models.group import Group, GroupMember
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
+from app.schemas.account import AccountCreate, AccountUpdate
 from app.schemas.budget import BudgetCreate
 from app.schemas.category import CategoryCreate
 from app.schemas.goal import GoalCreate
@@ -38,6 +39,7 @@ from app.schemas.rule import RuleAction, RuleCondition, RuleCreate
 from app.schemas.transaction import TransactionCreate
 from app.schemas.transaction_split import TransactionSplitInput, TransactionSplitsInput
 from app.services import (
+    account_service,
     budget_service,
     category_service,
     goal_service,
@@ -89,6 +91,188 @@ _APPLY_FIELD = {
 def _can_apply(ctx: CallContext, apply: bool) -> bool:
     """Gate: writes only happen when the caller is external AND set apply."""
     return bool(apply) and ctx.external
+
+
+@tool(
+    name="propose_create_account",
+    description=_PROPOSAL_PREFACE
+    + (
+        "Preview creation of a manual financial account with an optional opening "
+        "balance and credit/overdraft limit. Use type='loan' for overdrafts or "
+        "credit lines whose debt is represented by a negative balance."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "minLength": 1, "maxLength": 255},
+            "type": {
+                "type": "string",
+                "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"],
+            },
+            "balance": {"type": "number", "default": 0},
+            "balance_date": {"type": "string", "format": "date"},
+            "currency": {"type": "string", "minLength": 3, "maxLength": 3, "default": "USD"},
+            "credit_limit": {"type": "number", "exclusiveMinimum": 0},
+            "apply": _APPLY_FIELD,
+        },
+        "required": ["name", "type"],
+        "additionalProperties": False,
+    },
+    is_proposal=True,
+    tags=["propose", "accounts"],
+)
+async def propose_create_account(
+    *,
+    session: AsyncSession,
+    ctx: CallContext,
+    name: str,
+    type: str,
+    balance: float = 0,
+    balance_date: str | None = None,
+    currency: str = "USD",
+    credit_limit: float | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    clean_name = name.strip()
+    existing = (
+        await session.execute(
+            select(Account.id, Account.name).where(
+                Account.workspace_id == ws_id, Account.name.ilike(clean_name)
+            )
+        )
+    ).first()
+    proposed = {
+        "name": clean_name,
+        "type": type,
+        "balance": float(balance),
+        "balance_date": parse_date(balance_date).isoformat() if balance_date else None,
+        "currency": currency.upper(),
+        "credit_limit": float(credit_limit) if credit_limit is not None else None,
+    }
+    preview = {
+        "kind": "create_account",
+        "proposed": proposed,
+        "name_collision": {"id": str(existing.id), "name": existing.name} if existing else None,
+        "apply_endpoint": "POST /api/accounts",
+    }
+    if _can_apply(ctx, apply):
+        if existing:
+            return {**preview, "error": f"account named {existing.name!r} already exists"}
+        try:
+            created = await account_service.create_account(
+                session,
+                ws_id,
+                ctx.user_id,
+                AccountCreate(
+                    name=clean_name,
+                    type=type,
+                    balance=Decimal(str(balance)),
+                    balance_date=parse_date(balance_date),
+                    currency=currency.upper(),
+                    credit_limit=Decimal(str(credit_limit)) if credit_limit is not None else None,
+                ),
+            )
+        except ValueError as exc:
+            return {**preview, "error": str(exc)}
+        return {**preview, "applied": True, "id": str(created.id)}
+    return preview
+
+
+@tool(
+    name="propose_update_account",
+    description=_PROPOSAL_PREFACE
+    + (
+        "Preview changes to an existing account, including its name, type, "
+        "opening/current balance for manual accounts, balance date, or credit limit."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "account_id": {"type": "string", "format": "uuid"},
+            "name": {"type": "string", "minLength": 1, "maxLength": 255},
+            "type": {
+                "type": "string",
+                "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"],
+            },
+            "balance": {"type": "number"},
+            "balance_date": {"type": "string", "format": "date"},
+            "credit_limit": {"type": "number", "exclusiveMinimum": 0},
+            "apply": _APPLY_FIELD,
+        },
+        "required": ["account_id"],
+        "additionalProperties": False,
+    },
+    is_proposal=True,
+    tags=["propose", "accounts"],
+)
+async def propose_update_account(
+    *,
+    session: AsyncSession,
+    ctx: CallContext,
+    account_id: str,
+    name: str | None = None,
+    type: str | None = None,
+    balance: float | None = None,
+    balance_date: str | None = None,
+    credit_limit: float | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    acc_id = parse_uuid(account_id)
+    account = await account_service.get_account(session, acc_id, ws_id) if acc_id else None
+    if account is None:
+        return {"error": "account not found"}
+
+    changes: dict[str, Any] = {}
+    if name is not None:
+        changes["name"] = name.strip()
+    if type is not None:
+        changes["type"] = type
+    if balance is not None:
+        changes["balance"] = float(balance)
+    if balance_date is not None:
+        parsed_balance_date = parse_date(balance_date)
+        if parsed_balance_date is None:
+            return {"error": "invalid balance_date"}
+        changes["balance_date"] = parsed_balance_date.isoformat()
+    if credit_limit is not None:
+        changes["credit_limit"] = float(credit_limit)
+
+    preview = {
+        "kind": "update_account",
+        "account": {
+            "id": str(account.id),
+            "name": account.name,
+            "type": account.type,
+            "balance": num(account.balance),
+            "currency": account.currency,
+            "credit_limit": num(account.credit_limit),
+            "connected": account.connection_id is not None,
+        },
+        "changes": changes,
+        "apply_endpoint": f"PATCH /api/accounts/{account.id}",
+    }
+    if _can_apply(ctx, apply):
+        if not changes:
+            return {**preview, "error": "no changes requested"}
+        update_data: dict[str, Any] = dict(changes)
+        if "balance" in update_data:
+            update_data["balance"] = Decimal(str(update_data["balance"]))
+        if "credit_limit" in update_data:
+            update_data["credit_limit"] = Decimal(str(update_data["credit_limit"]))
+        if "balance_date" in update_data:
+            update_data["balance_date"] = parse_date(update_data["balance_date"])
+        try:
+            updated = await account_service.update_account(
+                session, account.id, ws_id, AccountUpdate(**update_data)
+            )
+        except ValueError as exc:
+            return {**preview, "error": str(exc)}
+        if updated is None:
+            return {**preview, "error": "account not found"}
+        return {**preview, "applied": True, "id": str(updated.id)}
+    return preview
 
 
 @tool(

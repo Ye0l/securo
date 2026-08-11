@@ -22,6 +22,7 @@ def mint_token(
     agent_id: Optional[uuid.UUID] = None,
     ttl_seconds: Optional[int] = None,
     external: bool = False,
+    never_expires: bool = False,
 ) -> str:
     """Mint an MCP JWT scoped to a (user, workspace) pair.
 
@@ -38,8 +39,9 @@ def mint_token(
         "iss": JWT_ISSUER,
         "aud": JWT_AUDIENCE,
         "iat": now,
-        "exp": now + (ttl_seconds or s.mcp_jwt_ttl_seconds),
     }
+    if not never_expires:
+        payload["exp"] = now + (ttl_seconds or s.mcp_jwt_ttl_seconds)
     if workspace_id:
         payload["ws_id"] = str(workspace_id)
     if conversation_id:

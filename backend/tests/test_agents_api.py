@@ -81,7 +81,7 @@ async def test_agents_info_exposes_mcp_external_ttl(client: AsyncClient, auth_he
     r = await client.get("/api/agents/info", headers=auth_headers)
     body = r.json()
     assert isinstance(body["mcp_external_ttl_days"], int)
-    assert body["mcp_external_ttl_days"] >= 1
+    assert body["mcp_external_ttl_days"] >= 0
 
 
 async def test_agents_info_exposes_external_mcp_url(client: AsyncClient, auth_headers: dict):
@@ -131,8 +131,13 @@ async def test_mcp_tokens_mint_returns_external_jwt(
     assert r.status_code == 201, r.text
     body = r.json()
     assert "token" in body
-    assert body["expires_in_days"] == get_agent_settings().mcp_external_ttl_days
-    assert body["expires_in_seconds"] == body["expires_in_days"] * 86400
+    configured_days = get_agent_settings().mcp_external_ttl_days
+    if configured_days > 0:
+        assert body["expires_in_days"] == configured_days
+        assert body["expires_in_seconds"] == configured_days * 86400
+    else:
+        assert body["expires_in_days"] is None
+        assert body["expires_in_seconds"] is None
 
     payload = jwt.decode(
         body["token"],
@@ -143,6 +148,8 @@ async def test_mcp_tokens_mint_returns_external_jwt(
     )
     assert payload["sub"] == str(test_user.id)
     assert payload["ext"] is True
+    if get_agent_settings().mcp_external_ttl_days <= 0:
+        assert "exp" not in payload
     # External tokens are detached from any conv/agent.
     assert "conv_id" not in payload
     assert "agent_id" not in payload

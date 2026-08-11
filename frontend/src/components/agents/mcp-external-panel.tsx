@@ -81,7 +81,7 @@ function clientConfigFor(client: ClientId, url: string, token: string): string {
 export function McpExternalPanel() {
   const { t } = useTranslation()
   const { data: info } = useQuery({ queryKey: ['agents-info'], queryFn: () => agents.info() })
-  const [result, setResult] = useState<{ token: string; expiresInDays: number } | null>(null)
+  const [result, setResult] = useState<{ token: string; expiresInDays: number | null } | null>(null)
   const [client, setClient] = useState<ClientId>('claude')
 
   const mintMut = useMutation({
@@ -130,11 +130,16 @@ export function McpExternalPanel() {
             {t('agents.mcpExternal.title', 'External MCP access')}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            {t(
-              'agents.mcpExternal.subtitle',
-              "Plug an external agent (Claude Desktop, ChatGPT, n8n, a custom client) into Securo's built-in MCP server. The token below is scoped to your user and expires in {{days}} days.",
-              { days: info.mcp_external_ttl_days },
-            )}
+            {info.mcp_external_ttl_days > 0
+              ? t(
+                  'agents.mcpExternal.subtitle',
+                  "Plug an external agent (Claude Desktop, ChatGPT, n8n, a custom client) into Securo's built-in MCP server. The token below is scoped to your user and expires in {{days}} days.",
+                  { days: info.mcp_external_ttl_days },
+                )
+              : t(
+                  'agents.mcpExternal.subtitleNeverExpires',
+                  "Plug an external agent (Claude Desktop, ChatGPT, n8n, a custom client) into Securo's built-in MCP server. The token below is scoped to your user and does not expire.",
+                )}
           </p>
         </div>
       </div>

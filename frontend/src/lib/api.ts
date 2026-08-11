@@ -1415,7 +1415,7 @@ export const agents = {
     }
   },
   mcpTokens: {
-    create: async (): Promise<{ token: string; expires_in_seconds: number; expires_in_days: number }> => {
+    create: async (): Promise<{ token: string; expires_in_seconds: number | null; expires_in_days: number | null }> => {
       const { data } = await api.post('/agents/mcp-tokens')
       return data
     },
