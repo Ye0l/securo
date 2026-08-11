@@ -15,6 +15,7 @@ from app.services.recurring_transaction_service import (
     create_recurring_transaction,
     delete_recurring_transaction,
     generate_pending,
+    _next_occurrence_on_or_after,
     get_occurrences_in_range,
     get_recurring_transaction,
     get_recurring_transactions,
@@ -549,3 +550,44 @@ async def test_generate_pending_no_duplicates(
     count2 = await generate_pending(session, test_user.id, up_to=date(2025, 3, 1))
     assert count1 == 3
     assert count2 == 0
+
+
+def test_next_occurrence_realigns_month_end_schedule():
+    assert _next_occurrence_on_or_after(
+        date(2026, 1, 31), "monthly", 31, date(2026, 8, 11)
+    ) == date(2026, 8, 31)
+    assert _next_occurrence_on_or_after(
+        date(2026, 1, 31), "monthly", 31, date(2026, 2, 1)
+    ) == date(2026, 2, 28)
+
+
+@pytest.mark.asyncio
+async def test_update_recurring_realigns_next_occurrence(
+    session: AsyncSession, test_user, test_workspace, test_account_for_recurring, monkeypatch
+):
+    rec = await create_recurring_transaction(
+        session,
+        test_workspace.id,
+        test_user.id,
+        RecurringTransactionCreate(
+            description="Insurance",
+            amount=Decimal("100"),
+            type="debit",
+            frequency="monthly",
+            day_of_month=1,
+            start_date=date(2026, 8, 11),
+            account_id=test_account_for_recurring.id,
+        ),
+    )
+    # Keep this assertion independent of the wall clock by editing to a future
+    # start date: next_occurrence must align to the newly requested day, not the
+    # old start date.
+    updated = await update_recurring_transaction(
+        session, rec.id, test_workspace.id,
+        RecurringTransactionUpdate(
+            start_date=date(2099, 1, 1),
+            day_of_month=31,
+        ),
+    )
+    assert updated is not None
+    assert updated.next_occurrence == date(2099, 1, 31)

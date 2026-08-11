@@ -104,6 +104,9 @@ async def update_recurring_transaction(
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    schedule_changed = any(
+        key in update_data for key in ("frequency", "day_of_month", "start_date")
+    )
 
     # A recurring transaction must always have an account — reject an explicit
     # null, and verify ownership of any new account_id.
@@ -116,6 +119,14 @@ async def update_recurring_transaction(
 
     for key, value in update_data.items():
         setattr(recurring, key, value)
+
+    if schedule_changed:
+        recurring.next_occurrence = _next_occurrence_on_or_after(
+            recurring.start_date,
+            recurring.frequency,
+            intended_day=recurring.day_of_month or recurring.start_date.day,
+            cutoff=date.today(),
+        )
 
     await session.commit()
     await session.refresh(recurring)
@@ -168,6 +179,35 @@ def _advance_date(
 
     # Preserve the existing monthly fallback for unknown legacy values.
     return _advance_months(current, 1, target_day)
+
+
+def _next_occurrence_on_or_after(
+    start: date,
+    frequency: str,
+    intended_day: Optional[int],
+    cutoff: date,
+) -> date:
+    """Return the first scheduled occurrence on or after ``cutoff``.
+
+    When an existing recurring transaction's schedule is edited, its stored
+    ``next_occurrence`` must move with the new schedule instead of retaining a
+    stale date from the old pattern. For monthly/quarterly/yearly schedules,
+    align the initial occurrence to the intended day first, clamping month-end
+    dates such as the 31st.
+    """
+    target_day = intended_day or start.day
+    current = start
+    if frequency in {"monthly", "quarterly", "yearly"}:
+        aligned_day = min(target_day, calendar.monthrange(start.year, start.month)[1])
+        current = date(start.year, start.month, aligned_day)
+        if current < start:
+            current = _advance_date(current, frequency, intended_day=target_day)
+
+    for _ in range(1000):
+        if current >= cutoff:
+            return current
+        current = _advance_date(current, frequency, intended_day=target_day)
+    raise ValueError("recurring schedule could not be advanced to cutoff")
 
 
 def get_occurrences_in_range(
