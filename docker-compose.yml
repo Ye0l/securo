@@ -165,6 +165,27 @@ services:
     ports:
       - "${AGENTS_MCP_EXTERNAL_HOST_PORT:-127.0.0.1:8765}:8765"
 
+  # Optional Google Gemini (web/app) OAuth adapter for Custom Apps.
+  # Uses a fixed client ID/secret entered in Gemini's Advanced features and
+  # auto-approves authorization for one configured Securo user.
+  gemini-oauth-gateway:
+    <<: *backend-base
+    profiles: [agents]
+    command: uvicorn mcp_server.gemini_gateway:app --host 0.0.0.0 --port 8766
+    depends_on:
+      - mcp-server
+    environment:
+      <<: *backend-env
+      GEMINI_MCP_CLIENT_ID: ${GEMINI_MCP_CLIENT_ID:-securo-gemini}
+      GEMINI_MCP_CLIENT_SECRET: ${GEMINI_MCP_CLIENT_SECRET:-}
+      GEMINI_MCP_PUBLIC_URL: ${GEMINI_MCP_PUBLIC_URL:-}
+      GEMINI_MCP_UPSTREAM: ${GEMINI_MCP_UPSTREAM:-http://mcp-server:8765/mcp}
+      GEMINI_MCP_USER_ID: ${GEMINI_MCP_USER_ID:-}
+      GEMINI_MCP_WORKSPACE_ID: ${GEMINI_MCP_WORKSPACE_ID:-}
+      GEMINI_MCP_OAUTH_SECRET: ${GEMINI_MCP_OAUTH_SECRET:-}
+    ports:
+      - "${GEMINI_MCP_EXTERNAL_HOST_PORT:-127.0.0.1:8766}:8766"
+
 volumes:
   pgdata:
   attachments:
