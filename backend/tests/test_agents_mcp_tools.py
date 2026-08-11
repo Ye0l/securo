@@ -1045,6 +1045,7 @@ async def test_propose_create_account_external_apply_writes_overdraft(
 
     account = (await session.execute(select(Account).where(Account.id == new_id))).scalar_one()
     assert account.type == "loan"
+    assert account.credit_limit is not None
     assert float(account.credit_limit) == 600_000
 
     ws_id = account.workspace_id

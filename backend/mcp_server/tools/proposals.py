@@ -142,11 +142,12 @@ async def propose_create_account(
             )
         )
     ).first()
+    parsed_balance_date = parse_date(balance_date) if balance_date else None
     proposed = {
         "name": clean_name,
         "type": type,
         "balance": float(balance),
-        "balance_date": parse_date(balance_date).isoformat() if balance_date else None,
+        "balance_date": parsed_balance_date.isoformat() if parsed_balance_date else None,
         "currency": currency.upper(),
         "credit_limit": float(credit_limit) if credit_limit is not None else None,
     }
