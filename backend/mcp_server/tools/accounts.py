@@ -82,7 +82,23 @@ async def get_mcp_read_probe(
     ctx: CallContext,
 ) -> dict[str, Any]:
     ws_id = await resolve_workspace_id(session, ctx)
-    return {"ok": True, "kind": "mcp_read_probe", "workspace_id": str(ws_id)}
+    # Keep this zero-argument probe schema stable and make its response dynamic.
+    # Clients that cache tools/list can still discover newly-added operations
+    # supported by the forward-compatible generic management tool.
+    from mcp_server.registry import REGISTRY
+    from mcp_server.tools.management import _OPERATIONS
+
+    return {
+        "ok": True,
+        "kind": "mcp_read_probe",
+        "workspace_id": str(ws_id),
+        "tool_count": len(REGISTRY),
+        "management_operations": sorted(_OPERATIONS),
+        "capability_hint": (
+            "Use propose_manage_finance_data with one of management_operations. "
+            "Its operation field is intentionally schema-stable for cached MCP clients."
+        ),
+    }
 
 
 @tool(
