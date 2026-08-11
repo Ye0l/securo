@@ -1,13 +1,14 @@
 """Minimal OAuth gateway for Google Gemini custom MCP apps.
 
-Single-user adapter: use a fixed client ID/secret in Gemini's Advanced
-features. Authorization is auto-approved; no login UI or dynamic client
-registration is provided.
+Supports multiple fixed OAuth clients. Each client ID/secret maps to one Securo
+user (and optionally one workspace). This keeps Gemini setup simple while
+preserving per-user Securo isolation.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -21,12 +22,8 @@ from jose import JWTError, jwt
 
 app = FastAPI(title="Securo Gemini MCP OAuth Gateway", openapi_url=None, docs_url=None)
 
-CLIENT_ID = os.getenv("GEMINI_MCP_CLIENT_ID", "securo-gemini")
-CLIENT_SECRET = os.getenv("GEMINI_MCP_CLIENT_SECRET", "")
 PUBLIC_URL = os.getenv("GEMINI_MCP_PUBLIC_URL", "").rstrip("/")
 UPSTREAM = os.getenv("GEMINI_MCP_UPSTREAM", "http://mcp-server:8765/mcp")
-USER_ID = os.getenv("GEMINI_MCP_USER_ID", "")
-WORKSPACE_ID = os.getenv("GEMINI_MCP_WORKSPACE_ID", "")
 OAUTH_SECRET = os.getenv("GEMINI_MCP_OAUTH_SECRET") or os.getenv("AGENTS_MCP_JWT_SECRET", "")
 MCP_JWT_SECRET = os.getenv("AGENTS_MCP_JWT_SECRET", "")
 
@@ -35,6 +32,46 @@ AUDIENCE = "securo-gemini-mcp"
 MCP_ISSUER = "securo-backend"
 MCP_AUDIENCE = "securo-mcp"
 _codes: dict[str, dict] = {}
+
+
+def _clients() -> dict[str, dict[str, str]]:
+    """Load client_id -> {secret,user_id,workspace_id?} mapping.
+
+    Preferred format:
+      GEMINI_MCP_CLIENTS={"yeol":{"secret":"...","user_id":"uuid"},...}
+
+    The original single-user variables remain supported for compatibility.
+    """
+    raw = os.getenv("GEMINI_MCP_CLIENTS", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        out: dict[str, dict[str, str]] = {}
+        for client_id, cfg in parsed.items():
+            if not isinstance(client_id, str) or not isinstance(cfg, dict):
+                continue
+            secret = cfg.get("secret")
+            user_id = cfg.get("user_id")
+            workspace_id = cfg.get("workspace_id", "")
+            if isinstance(secret, str) and secret and isinstance(user_id, str) and user_id:
+                out[client_id] = {
+                    "secret": secret,
+                    "user_id": user_id,
+                    "workspace_id": workspace_id if isinstance(workspace_id, str) else "",
+                }
+        return out
+
+    client_id = os.getenv("GEMINI_MCP_CLIENT_ID", "securo-gemini")
+    secret = os.getenv("GEMINI_MCP_CLIENT_SECRET", "")
+    user_id = os.getenv("GEMINI_MCP_USER_ID", "")
+    workspace_id = os.getenv("GEMINI_MCP_WORKSPACE_ID", "")
+    if client_id and secret and user_id:
+        return {client_id: {"secret": secret, "user_id": user_id, "workspace_id": workspace_id}}
+    return {}
 
 
 def _base(request: Request) -> str:
@@ -57,53 +94,67 @@ def _client_credentials(request: Request, form: dict[str, str]) -> tuple[str, st
     return form.get("client_id", ""), form.get("client_secret", "")
 
 
-def _mint_gateway_token(kind: str, ttl: int) -> str:
+def _mint_gateway_token(kind: str, client_id: str, cfg: dict[str, str], ttl: int) -> str:
     now = int(time.time())
-    return jwt.encode(
-        {"iss": ISSUER, "aud": AUDIENCE, "sub": USER_ID, "typ": kind, "iat": now, "exp": now + ttl},
-        OAUTH_SECRET,
-        algorithm="HS256",
-    )
+    payload: dict[str, object] = {
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "sub": cfg["user_id"],
+        "client_id": client_id,
+        "typ": kind,
+        "iat": now,
+        "exp": now + ttl,
+    }
+    if cfg.get("workspace_id"):
+        payload["ws_id"] = cfg["workspace_id"]
+    return jwt.encode(payload, OAUTH_SECRET, algorithm="HS256")
 
 
-def _verify_gateway_access(token: str) -> bool:
+def _verify_gateway_access(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, OAUTH_SECRET, algorithms=["HS256"], audience=AUDIENCE, issuer=ISSUER)
-        return payload.get("typ") == "access"
+        if payload.get("typ") != "access" or not payload.get("sub") or not payload.get("client_id"):
+            return None
+        return payload
     except JWTError:
-        return False
+        return None
 
 
-def _mint_upstream_token() -> str:
+def _mint_upstream_token(identity: dict) -> str:
     now = int(time.time())
     payload: dict[str, object] = {
         "iss": MCP_ISSUER,
         "aud": MCP_AUDIENCE,
-        "sub": USER_ID,
+        "sub": identity["sub"],
         "ext": True,
         "iat": now,
         "exp": now + 3600,
         "jti": str(uuid.uuid4()),
     }
-    if WORKSPACE_ID:
-        payload["ws_id"] = WORKSPACE_ID
+    if identity.get("ws_id"):
+        payload["ws_id"] = identity["ws_id"]
     return jwt.encode(payload, MCP_JWT_SECRET, algorithm="HS256")
 
 
 def _ready() -> tuple[bool, str]:
-    missing = [name for name, value in (
-        ("GEMINI_MCP_CLIENT_SECRET", CLIENT_SECRET),
-        ("GEMINI_MCP_USER_ID", USER_ID),
-        ("GEMINI_MCP_OAUTH_SECRET/AGENTS_MCP_JWT_SECRET", OAUTH_SECRET),
-        ("AGENTS_MCP_JWT_SECRET", MCP_JWT_SECRET),
-    ) if not value]
-    return (not missing, ", ".join(missing))
+    problems: list[str] = []
+    clients = _clients()
+    if not clients:
+        problems.append("GEMINI_MCP_CLIENTS (or legacy single-user client settings)")
+    if not OAUTH_SECRET:
+        problems.append("GEMINI_MCP_OAUTH_SECRET/AGENTS_MCP_JWT_SECRET")
+    if not MCP_JWT_SECRET:
+        problems.append("AGENTS_MCP_JWT_SECRET")
+    return (not problems, ", ".join(problems))
 
 
 @app.get("/health")
 async def health():
     ok, missing = _ready()
-    return JSONResponse({"status": "ok" if ok else "misconfigured", "missing": missing or None}, status_code=200 if ok else 503)
+    return JSONResponse(
+        {"status": "ok" if ok else "misconfigured", "clients": len(_clients()), "missing": missing or None},
+        status_code=200 if ok else 503,
+    )
 
 
 @app.get("/.well-known/oauth-protected-resource")
@@ -130,7 +181,9 @@ async def authorization_server(request: Request):
 @app.get("/authorize")
 async def authorize(request: Request):
     q = request.query_params
-    if q.get("client_id") != CLIENT_ID:
+    client_id = q.get("client_id", "")
+    cfg = _clients().get(client_id)
+    if not cfg:
         return _json_error("unauthorized_client", "unknown client_id", 401)
     if q.get("response_type") != "code":
         return _json_error("unsupported_response_type", "only code is supported")
@@ -142,7 +195,12 @@ async def authorize(request: Request):
         return _json_error("invalid_request", "PKCE S256 is required")
 
     code = secrets.token_urlsafe(32)
-    _codes[code] = {"redirect_uri": redirect_uri, "challenge": challenge, "expires": time.time() + 300}
+    _codes[code] = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "challenge": challenge,
+        "expires": time.time() + 300,
+    }
     params = {"code": code}
     if q.get("state"):
         params["state"] = q["state"]
@@ -155,7 +213,8 @@ async def token(request: Request):
     form_raw = parse_qs((await request.body()).decode())
     form = {k: v[-1] for k, v in form_raw.items() if v}
     client_id, client_secret = _client_credentials(request, form)
-    if client_id != CLIENT_ID or not secrets.compare_digest(client_secret, CLIENT_SECRET):
+    cfg = _clients().get(client_id)
+    if not cfg or not secrets.compare_digest(client_secret, cfg["secret"]):
         return _json_error("invalid_client", "bad client credentials", 401)
 
     grant = form.get("grant_type")
@@ -163,6 +222,8 @@ async def token(request: Request):
         data = _codes.pop(form.get("code", ""), None)
         if not data or data["expires"] < time.time():
             return _json_error("invalid_grant", "code missing or expired")
+        if data.get("client_id") != client_id:
+            return _json_error("invalid_grant", "authorization code belongs to another client")
         if form.get("redirect_uri") != data["redirect_uri"]:
             return _json_error("invalid_grant", "redirect_uri mismatch")
         verifier = form.get("code_verifier", "")
@@ -171,19 +232,25 @@ async def token(request: Request):
             return _json_error("invalid_grant", "PKCE verification failed")
     elif grant == "refresh_token":
         try:
-            payload = jwt.decode(form.get("refresh_token", ""), OAUTH_SECRET, algorithms=["HS256"], audience=AUDIENCE, issuer=ISSUER)
-            if payload.get("typ") != "refresh":
-                raise JWTError("wrong token type")
+            payload = jwt.decode(
+                form.get("refresh_token", ""),
+                OAUTH_SECRET,
+                algorithms=["HS256"],
+                audience=AUDIENCE,
+                issuer=ISSUER,
+            )
+            if payload.get("typ") != "refresh" or payload.get("client_id") != client_id:
+                raise JWTError("wrong token type or client")
         except JWTError:
             return _json_error("invalid_grant", "invalid refresh token")
     else:
         return _json_error("unsupported_grant_type", "use authorization_code or refresh_token")
 
     return {
-        "access_token": _mint_gateway_token("access", 3600),
+        "access_token": _mint_gateway_token("access", client_id, cfg, 3600),
         "token_type": "Bearer",
         "expires_in": 3600,
-        "refresh_token": _mint_gateway_token("refresh", 30 * 86400),
+        "refresh_token": _mint_gateway_token("refresh", client_id, cfg, 30 * 86400),
         "scope": "mcp",
     }
 
@@ -198,15 +265,21 @@ async def mcp_proxy(request: Request):
 
     auth = request.headers.get("authorization", "")
     access = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else ""
-    if not access or not _verify_gateway_access(access):
+    identity = _verify_gateway_access(access) if access else None
+    if not identity:
         return JSONResponse(
             {"error": "unauthorized"},
             status_code=401,
             headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}"'},
         )
 
+    # If a client was removed from configuration, immediately revoke its access
+    # even if a previously issued access token has not expired yet.
+    if identity.get("client_id") not in _clients():
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
     headers = {
-        "Authorization": f"Bearer {_mint_upstream_token()}",
+        "Authorization": f"Bearer {_mint_upstream_token(identity)}",
         "Accept": request.headers.get("accept", "application/json, text/event-stream"),
     }
     if request.headers.get("content-type"):
