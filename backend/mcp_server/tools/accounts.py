@@ -50,6 +50,28 @@ async def list_accounts(
 
 
 @tool(
+    name="get_mcp_read_probe",
+    description=(
+        "Read-only MCP discovery probe. Returns a small authenticated response so clients can "
+        "verify that newly-added read tools are being discovered correctly."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    tags=["read", "diagnostics"],
+)
+async def get_mcp_read_probe(
+    *,
+    session: AsyncSession,
+    ctx: CallContext,
+) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
+    return {"ok": True, "kind": "mcp_read_probe", "workspace_id": str(ws_id)}
+
+
+@tool(
     name="get_account_summary",
     description=(
         "Income, expenses, and net for a single account over a date range. "

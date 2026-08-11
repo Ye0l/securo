@@ -33,6 +33,7 @@ def test_registry_contains_v1_tools():
         "list_transactions",
         "list_accounts",
         "get_account_summary",
+        "get_mcp_read_probe",
         "list_categories",
         "list_payees",
         "get_budget_vs_actual",
@@ -259,6 +260,14 @@ async def test_list_transactions_account_types_filter(
     assert cc["total"] == 0
     checking = await handler(session=session, ctx=ctx, account_types=["checking"])
     assert checking["total"] >= 1
+
+
+async def test_get_mcp_read_probe(session: AsyncSession, ctx: CallContext):
+    handler = REGISTRY["get_mcp_read_probe"].handler
+    out = await handler(session=session, ctx=ctx)
+    assert out["ok"] is True
+    assert out["kind"] == "mcp_read_probe"
+    assert uuid.UUID(out["workspace_id"])
 
 
 async def test_list_accounts(session: AsyncSession, ctx: CallContext, test_account):
